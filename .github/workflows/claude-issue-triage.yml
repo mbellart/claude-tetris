@@ -1,0 +1,71 @@
+name: Claude Issue Triage
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  triage:
+    if: >
+      github.event.sender.type != 'Bot' &&
+      !contains(github.event.issue.body, '@claude') &&
+      !contains(github.event.issue.title, '@claude')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Issue Triage
+        id: claude-triage
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          prompt: |
+            Analiza el issue #${{ github.event.issue.number }} de este repositorio
+            (un Tetris en JavaScript vanilla, ver CLAUDE.md para arquitectura) y realiza
+            estas acciones:
+
+            1. Lee el título y cuerpo del issue con:
+               gh issue view ${{ github.event.issue.number }} --json title,body,labels,comments
+
+            2. Lista los labels existentes del repo con `gh label list`. Reutiliza los que
+               apliquen. Solo crea labels nuevos con `gh label create` (nombre en minúscula,
+               estilo `bug`, `enhancement`, `priority:high`, `area:ui`, etc., con una
+               descripción y color razonables) si ninguno existente encaja bien.
+
+            3. Asigna los labels apropiados al issue con:
+               gh issue edit ${{ github.event.issue.number }} --add-label "<label1>,<label2>"
+               (quita labels que ya no apliquen si el issue fue editado y cambió de
+               naturaleza, usando --remove-label).
+
+            4. Publica UN comentario en ESPAÑOL con el diagnóstico general del problema,
+               usando `gh issue comment ${{ github.event.issue.number }} --body "..."`.
+               Estructura el comentario con encabezados markdown e incluye:
+               - **Resumen del problema**: qué está pasando, en 2-3 frases.
+               - **Componentes afectados**: qué archivo(s) del repo (game.js, index.html,
+                 style.css) y qué función(es)/sección(es) probablemente están involucradas.
+               - **Causa probable**: hipótesis técnica basada en la arquitectura descrita en
+                 CLAUDE.md.
+               - **Enfoque sugerido de solución**: pasos generales a seguir para implementar
+                 el fix o la feature (sin escribir el código todavía, esto es solo
+                 diagnóstico).
+
+            5. IMPORTANTE - evita duplicados: antes de comentar, revisa los comentarios
+               existentes del issue (ya obtenidos en el paso 1). Si ya existe un comentario
+               de diagnóstico tuyo de una ejecución anterior de este workflow (identifícalo
+               porque tiene la sección "Resumen del problema"), en vez de crear un comentario
+               nuevo, edítalo con:
+               gh issue comment ${{ github.event.issue.number }} --edit-last --body "..."
+               (usa esto solo si el último comentario del issue es tuyo; si hay comentarios
+               de otras personas después, publica un comentario nuevo indicando que es una
+               actualización del diagnóstico tras la edición del issue).
+
+          claude_args: |
+            --allowed-tools "Bash(gh issue view:*),Bash(gh label list:*),Bash(gh label create:*),Bash(gh issue edit:*),Bash(gh issue comment:*)"
